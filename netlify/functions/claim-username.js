@@ -51,9 +51,9 @@ exports.handler = async function (event) {
   const rec = { name: name, salt: salt.toString('hex'), hash: hash.toString('hex'), tokens: [sha(token)], fails: 0, lastFail: 0, lockUntil: 0, createdAt: Date.now() };
   await users.setJSON(key, rec);
 
-  // If two people claimed the same name at the same moment, only the one whose record survived keeps it.
-  const check = await users.get(key, { type: 'json' });
-  if (!check || check.salt !== rec.salt) return json(409, { error: 'taken' });
-
+  // No read-back check here: under eventual consistency a read straight after a write can be stale,
+  // which would wrongly report a fresh claim as "taken". The check above (before writing) is enough
+  // to stop the common case; two people claiming the exact same name in the same instant is rare
+  // enough to accept for a hobby leaderboard.
   return json(200, { ok: true, token: token, name: name });
 };
