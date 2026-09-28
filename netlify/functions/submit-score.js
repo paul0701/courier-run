@@ -26,14 +26,14 @@ exports.handler = async function (event) {
   if (typeof body.runId !== 'string' || typeof body.token !== 'string' || typeof body.name !== 'string') return json(400, { error: 'invalid' });
 
   // 1. Who is this? The name plus the token their device was given when they logged in.
-  const users = getStore({ name: 'users', consistency: 'strong' });
+  const users = getStore({ name: 'users' });
   const key = nameKey(body.name);
   const user = key ? await users.get(key, { type: 'json' }) : null;
   const tokenHash = sha(body.token);
   if (!user || (user.tokens || []).indexOf(tokenHash) < 0) return json(401, { error: 'login' });
 
   // 2. Was there a real run? Each run id works once, whatever the outcome.
-  const runs = getStore({ name: 'runs', consistency: 'strong' });
+  const runs = getStore({ name: 'runs' });
   const run = await runs.get(body.runId, { type: 'json' });
   if (!run) return json(409, { error: 'run' });
   await runs.delete(body.runId);
@@ -44,7 +44,7 @@ exports.handler = async function (event) {
   if (score > BASE_ALLOWANCE + POINTS_PER_SECOND * (elapsed / 1000)) return json(403, { error: 'implausible' });
 
   // 4. Keep each player's best.
-  const board = getStore({ name: 'leaderboard', consistency: 'strong' });
+  const board = getStore({ name: 'leaderboard' });
   const list = (await board.get('scores', { type: 'json' })) || [];
   let entry = list.filter(function (e) { return e.key === key; })[0];
   let improved = false;

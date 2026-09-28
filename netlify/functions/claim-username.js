@@ -41,7 +41,7 @@ exports.handler = async function (event) {
   if (!PIN_RE.test(pin)) return json(400, { error: 'pin' });
   if (blocked(name)) return json(400, { error: 'blocked' });
 
-  const users = getStore({ name: 'users', consistency: 'strong' });
+  const users = getStore({ name: 'users' });
   const key = nameKey(name);
   if (await users.get(key, { type: 'json' })) return json(409, { error: 'taken' });
 

@@ -22,7 +22,7 @@ exports.handler = async function (event) {
   try { body = JSON.parse(event.body || '{}'); } catch (e) { return json(400, { error: 'json' }); }
   if (typeof body.key !== 'string' || !same(body.key, secret)) return json(401, { error: 'key' });
 
-  const board = getStore({ name: 'leaderboard', consistency: 'strong' });
+  const board = getStore({ name: 'leaderboard' });
   const list = (await board.get('scores', { type: 'json' })) || [];
 
   if (body.action === 'list') {

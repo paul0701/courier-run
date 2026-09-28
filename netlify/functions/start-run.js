@@ -4,7 +4,7 @@ const crypto = require('crypto');
 // Called when a run begins. Hands the game a one-use run id and notes the start time on the server.
 exports.handler = async function (event) {
   connectLambda(event);
-  const runs = getStore({ name: 'runs', consistency: 'strong' });
+  const runs = getStore({ name: 'runs' });
   const runId = crypto.randomUUID();
   await runs.setJSON(runId, { startedAt: Date.now() });
 

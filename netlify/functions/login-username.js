@@ -27,7 +27,7 @@ exports.handler = async function (event) {
   const pin = typeof body.pin === 'string' ? body.pin.trim() : '';
   if (name.length < 3 || !PIN_RE.test(pin)) return json(400, { error: 'invalid' });
 
-  const users = getStore({ name: 'users', consistency: 'strong' });
+  const users = getStore({ name: 'users' });
   const key = nameKey(name);
   const rec = await users.get(key, { type: 'json' });
   if (!rec) {

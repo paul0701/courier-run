@@ -14,13 +14,13 @@ function header(event, name) {
 
 exports.handler = async function (event) {
   connectLambda(event);
-  const board = getStore({ name: 'leaderboard', consistency: 'strong' });
+  const board = getStore({ name: 'leaderboard' });
   const list = ((await board.get('scores', { type: 'json' })) || []).filter(function (e) { return !e.hidden; });
 
   let me = null;
   const name = header(event, 'x-cr-name'), token = header(event, 'x-cr-token');
   if (name && token) {
-    const users = getStore({ name: 'users', consistency: 'strong' });
+    const users = getStore({ name: 'users' });
     const key = nameKey(name);
     const user = await users.get(key, { type: 'json' });
     if (user && (user.tokens || []).indexOf(sha(token)) >= 0) {
