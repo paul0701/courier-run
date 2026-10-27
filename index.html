@@ -292,7 +292,7 @@ canvas {
     <label for="acctName">Your name</label>
     <input class="field" id="acctName" maxlength="16" placeholder="3 to 16 letters or numbers" autocomplete="off" autocapitalize="off" spellcheck="false">
     <label for="acctPin">Your PIN</label>
-    <input class="field" id="acctPin" type="password" inputmode="numeric" maxlength="6" placeholder="4 to 6 digits" autocomplete="off">
+    <input class="field" id="acctPin" type="password" inputmode="numeric" maxlength="6" placeholder="6 digits" autocomplete="off">
     <p class="small">Please do not use your real name, and pick a PIN that is not your bank PIN. Scores are checked, and anything that looks impossible is thrown out.</p>
     <div class="err" id="acctErr" role="alert"></div>
     <div class="row">
@@ -469,7 +469,7 @@ canvas {
     var pin = $('acctPin').value;
     var err = $('acctErr');
     if (!/^[A-Za-z0-9 _-]{3,16}$/.test(name)) { err.textContent = 'Names are 3 to 16 characters: letters, numbers, spaces, - and _.'; return; }
-    if (!/^[0-9]{4,6}$/.test(pin)) { err.textContent = 'Your PIN needs to be 4 to 6 digits.'; return; }
+    if (!/^[0-9]{6}$/.test(pin)) { err.textContent = 'Your PIN needs to be 6 digits.'; return; }
     err.textContent = '';
     var btns = [$('claimBtn'), $('loginBtn')];
     btns.forEach(function (b) { b.disabled = true; });
@@ -486,7 +486,7 @@ canvas {
       var msg = 'Something went wrong. Please try again.';
       if (j.error === 'taken') msg = 'That name is taken. If it is yours, press Log in.';
       else if (j.error === 'name') msg = 'That name will not work. Try 3 to 16 letters or numbers.';
-      else if (j.error === 'pin') msg = 'Your PIN needs to be 4 to 6 digits.';
+      else if (j.error === 'pin') msg = 'Your PIN needs to be 6 digits.';
       else if (j.error === 'blocked') msg = 'Please pick a different name.';
       else if (j.error === 'bad') msg = 'That name and PIN do not match.';
       else if (j.error === 'locked') msg = 'Too many wrong tries. Please wait about ' + Math.ceil((j.retryAfter || 900) / 60) + ' minutes.';

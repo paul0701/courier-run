@@ -2,7 +2,7 @@ const { getStore, connectLambda } = require('@netlify/blobs');
 const crypto = require('crypto');
 
 const NAME_RE = /^[A-Za-z0-9 _-]{3,16}$/;
-const PIN_RE = /^[0-9]{4,6}$/;
+const PIN_RE = /^[0-9]{6}$/;
 
 // A simple starting filter. It will not catch everything, so keep an eye on the board and use the admin page.
 const STEMS = ['fuck', 'shit', 'cunt', 'nigg', 'bitch', 'whore', 'pussy', 'bastard', 'wanker', 'twat', 'rapist', 'hitler', 'porn'];

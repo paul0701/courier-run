@@ -1,7 +1,7 @@
 const { getStore, connectLambda } = require('@netlify/blobs');
 const crypto = require('crypto');
 
-const PIN_RE = /^[0-9]{4,6}$/;
+const PIN_RE = /^[0-9]{6}$/;
 const MAX_FAILS = 5;
 const LOCK_MS = 15 * 60 * 1000;
 
