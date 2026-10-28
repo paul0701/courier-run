@@ -397,14 +397,67 @@ canvas {
     try { if (acct) localStorage.setItem('courierrun_acct', JSON.stringify(acct)); else localStorage.removeItem('courierrun_acct'); } catch (e) {}
   }
   function $(id) { return document.getElementById(id); }
-  function api(name, method, body, headers) {
+  // Shared accounts service — one login across the whole arcade. Courier Run
+  // keeps its own UI and PIN recovery; this adapter speaks its old function
+  // names but routes to central, so the rest of the module is unchanged.
+  // Courier's board stays separate (keyed by game); the in-run "streak" is
+  // local gameplay, nothing to sync.
+  var CENTRAL = 'https://agnostic.accounts.agnosticsolutions.co.uk';
+  var GAME = 'courier-run';
+  function crWeekId() {
+    var d = new Date(), t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    var day = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - day);
+    var y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return t.getUTCFullYear() + '-W' + String(Math.ceil(((t - y0) / 864e5 + 1) / 7)).padStart(2, '0');
+  }
+  function cReq(path, method, bodyObj, bearer) {
     if (typeof fetch !== 'function') return Promise.reject(new Error('no fetch'));
     var opts = { method: method || 'POST', headers: {} };
-    if (headers) for (var h in headers) opts.headers[h] = headers[h];
-    if (body && opts.method !== 'GET') { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
-    return fetch('/.netlify/functions/' + name, opts).then(function (r) {
+    if (bearer) opts.headers['Authorization'] = 'Bearer ' + bearer;
+    if (bodyObj && opts.method !== 'GET') { opts.body = JSON.stringify(bodyObj); opts.headers['Content-Type'] = 'application/json'; }
+    return fetch(CENTRAL + path, opts).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) { j._status = r.status; return j; });
     });
+  }
+  function api(name, method, body, headers) {
+    body = body || {}; headers = headers || {};
+    var tok = body.token || headers['x-cr-token'] || null;
+    if (name === 'start-run') return Promise.resolve({ ok: true, runId: 'central', _status: 200 });
+    if (name === 'claim-username') return cReq('/api/auth/register', 'POST', { username: body.name, pin: body.pin, email: body.email || '' }).then(function (j) {
+      if (j._status === 201 && j.token) return { ok: true, name: j.username, token: j.token, _status: 200 };
+      if (j._status === 409) return { ok: false, error: 'taken', _status: 409 };
+      if (j._status === 400 && /email/i.test(j.detail || '')) return { ok: false, error: 'email', _status: 400 };
+      if (j._status === 400 && /pin/i.test(j.detail || '')) return { ok: false, error: 'pin', _status: 400 };
+      if (j._status === 400) return { ok: false, error: 'name', _status: 400 };
+      return { ok: false, error: 'bad', _status: j._status };
+    });
+    if (name === 'login-username') return cReq('/api/auth/login', 'POST', { username: body.name, pin: body.pin }).then(function (j) {
+      if (j._status === 200 && j.token) return { ok: true, name: j.username, token: j.token, _status: 200 };
+      if (j._status === 429) return { ok: false, error: 'locked', retryAfter: 900, _status: 429 };
+      return { ok: false, error: 'bad', _status: j._status };
+    });
+    if (name === 'submit-score') return cReq('/api/sync', 'POST', { game: GAME, best: Math.floor(Number(body.score) || 0), week: crWeekId(), week_best: Math.floor(Number(body.score) || 0) }, tok).then(function (j) {
+      if (j._status === 401) return { ok: false, _status: 401 };
+      if (j._status !== 200) return { ok: false, _status: j._status };
+      var best = Number(j.best) || 0, sc = Math.floor(Number(body.score) || 0);
+      return { ok: true, rank: j.rank, improved: sc >= best, best: best, _status: 200 };
+    });
+    if (name === 'request-reset') return cReq('/api/auth/forgot', 'POST', { username: body.name }, null);
+    if (name === 'reset-pin') return cReq('/api/auth/reset', 'POST', { username: body.name, code: body.code, pin: body.pin }, null).then(function (j) {
+      if (j._status === 200 && j.token) return { ok: true, name: j.username, token: j.token, _status: 200 };
+      if (j._status === 429) return { ok: false, error: 'tries', _status: 429 };
+      return { ok: false, error: 'code', _status: j._status };
+    });
+    if (name === 'get-leaderboard') return cReq('/api/leaderboard?game=' + GAME + '&period=all&limit=25', 'GET', null, null).then(function (d) {
+      var top = (d.entries || []).map(function (e) { return { name: e.username, score: e.best }; });
+      if (!tok) return { top: top, _status: d._status };
+      return cReq('/api/me', 'GET', null, tok).then(function (me) {
+        var g = (me && me.games && me.games[GAME]) || {}, myName = me && me.username, rank = null;
+        for (var i = 0; i < top.length; i++) { if (myName && String(top[i].name).toLowerCase() === String(myName).toLowerCase()) { rank = i + 1; break; } }
+        return { top: top, me: { name: myName || body.name, rank: rank, best: Number(g.best) || 0 }, _status: d._status };
+      }).catch(function () { return { top: top, _status: d._status }; });
+    });
+    return Promise.resolve({ ok: false, _status: 400 });
   }
   function submitRun(run) {
     if (!run || !run.runId || !acct) return;
