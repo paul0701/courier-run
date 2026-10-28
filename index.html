@@ -292,13 +292,37 @@ canvas {
     <label for="acctName">Your name</label>
     <input class="field" id="acctName" maxlength="16" placeholder="3 to 16 letters or numbers" autocomplete="off" autocapitalize="off" spellcheck="false">
     <label for="acctPin">Your PIN</label>
-    <input class="field" id="acctPin" type="password" inputmode="numeric" maxlength="6" placeholder="4 to 6 digits" autocomplete="off">
+    <input class="field" id="acctPin" type="password" inputmode="numeric" maxlength="6" placeholder="6 digits" autocomplete="off">
+    <label for="acctEmail">Recovery email (optional)</label>
+    <input class="field" id="acctEmail" type="email" maxlength="254" placeholder="to reset a forgotten PIN" autocomplete="off" autocapitalize="off" spellcheck="false">
     <p class="small">Please do not use your real name, and pick a PIN that is not your bank PIN. Scores are checked, and anything that looks impossible is thrown out.</p>
     <div class="err" id="acctErr" role="alert"></div>
     <div class="row">
       <button class="main" id="claimBtn" type="button">Claim name</button>
       <button id="loginBtn" type="button">Log in</button>
       <button id="acctLater" type="button">Not now</button>
+    </div>
+    <p class="small"><button id="forgotBtn" type="button" style="background:none;border:0;color:inherit;text-decoration:underline;cursor:pointer;padding:0;font:inherit">Forgot your PIN?</button></p>
+  </div>
+</div>
+
+<div class="overlay" id="resetOverlay">
+  <div class="panel" role="dialog" aria-labelledby="resetTitle">
+    <h2 id="resetTitle">Reset your PIN</h2>
+    <p class="small">Enter your name and we will email a 6-digit code to the address saved on your account.</p>
+    <label for="rName">Your name</label>
+    <input class="field" id="rName" maxlength="16" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div id="rStep2" style="display:none">
+      <label for="rCode">Code from the email</label>
+      <input class="field" id="rCode" inputmode="numeric" maxlength="6" placeholder="6 digits" autocomplete="one-time-code">
+      <label for="rNewPin">New PIN</label>
+      <input class="field" id="rNewPin" type="password" inputmode="numeric" maxlength="6" placeholder="6 digits" autocomplete="off">
+    </div>
+    <div class="err" id="resetErr" role="alert"></div>
+    <div class="row">
+      <button class="main" id="rSendBtn" type="button">Send code</button>
+      <button id="rResetBtn" type="button" style="display:none">Set new PIN</button>
+      <button id="rCancel" type="button">Cancel</button>
     </div>
   </div>
 </div>
@@ -373,14 +397,67 @@ canvas {
     try { if (acct) localStorage.setItem('courierrun_acct', JSON.stringify(acct)); else localStorage.removeItem('courierrun_acct'); } catch (e) {}
   }
   function $(id) { return document.getElementById(id); }
-  function api(name, method, body, headers) {
+  // Shared accounts service — one login across the whole arcade. Courier Run
+  // keeps its own UI and PIN recovery; this adapter speaks its old function
+  // names but routes to central, so the rest of the module is unchanged.
+  // Courier's board stays separate (keyed by game); the in-run "streak" is
+  // local gameplay, nothing to sync.
+  var CENTRAL = 'https://agnostic.accounts.agnosticsolutions.co.uk';
+  var GAME = 'courier-run';
+  function crWeekId() {
+    var d = new Date(), t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    var day = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - day);
+    var y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return t.getUTCFullYear() + '-W' + String(Math.ceil(((t - y0) / 864e5 + 1) / 7)).padStart(2, '0');
+  }
+  function cReq(path, method, bodyObj, bearer) {
     if (typeof fetch !== 'function') return Promise.reject(new Error('no fetch'));
     var opts = { method: method || 'POST', headers: {} };
-    if (headers) for (var h in headers) opts.headers[h] = headers[h];
-    if (body && opts.method !== 'GET') { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
-    return fetch('/.netlify/functions/' + name, opts).then(function (r) {
+    if (bearer) opts.headers['Authorization'] = 'Bearer ' + bearer;
+    if (bodyObj && opts.method !== 'GET') { opts.body = JSON.stringify(bodyObj); opts.headers['Content-Type'] = 'application/json'; }
+    return fetch(CENTRAL + path, opts).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) { j._status = r.status; return j; });
     });
+  }
+  function api(name, method, body, headers) {
+    body = body || {}; headers = headers || {};
+    var tok = body.token || headers['x-cr-token'] || null;
+    if (name === 'start-run') return Promise.resolve({ ok: true, runId: 'central', _status: 200 });
+    if (name === 'claim-username') return cReq('/api/auth/register', 'POST', { username: body.name, pin: body.pin, email: body.email || '' }).then(function (j) {
+      if (j._status === 201 && j.token) return { ok: true, name: j.username, token: j.token, _status: 200 };
+      if (j._status === 409) return { ok: false, error: 'taken', _status: 409 };
+      if (j._status === 400 && /email/i.test(j.detail || '')) return { ok: false, error: 'email', _status: 400 };
+      if (j._status === 400 && /pin/i.test(j.detail || '')) return { ok: false, error: 'pin', _status: 400 };
+      if (j._status === 400) return { ok: false, error: 'name', _status: 400 };
+      return { ok: false, error: 'bad', _status: j._status };
+    });
+    if (name === 'login-username') return cReq('/api/auth/login', 'POST', { username: body.name, pin: body.pin }).then(function (j) {
+      if (j._status === 200 && j.token) return { ok: true, name: j.username, token: j.token, _status: 200 };
+      if (j._status === 429) return { ok: false, error: 'locked', retryAfter: 900, _status: 429 };
+      return { ok: false, error: 'bad', _status: j._status };
+    });
+    if (name === 'submit-score') return cReq('/api/sync', 'POST', { game: GAME, best: Math.floor(Number(body.score) || 0), week: crWeekId(), week_best: Math.floor(Number(body.score) || 0) }, tok).then(function (j) {
+      if (j._status === 401) return { ok: false, _status: 401 };
+      if (j._status !== 200) return { ok: false, _status: j._status };
+      var best = Number(j.best) || 0, sc = Math.floor(Number(body.score) || 0);
+      return { ok: true, rank: j.rank, improved: sc >= best, best: best, _status: 200 };
+    });
+    if (name === 'request-reset') return cReq('/api/auth/forgot', 'POST', { username: body.name }, null);
+    if (name === 'reset-pin') return cReq('/api/auth/reset', 'POST', { username: body.name, code: body.code, pin: body.pin }, null).then(function (j) {
+      if (j._status === 200 && j.token) return { ok: true, name: j.username, token: j.token, _status: 200 };
+      if (j._status === 429) return { ok: false, error: 'tries', _status: 429 };
+      return { ok: false, error: 'code', _status: j._status };
+    });
+    if (name === 'get-leaderboard') return cReq('/api/leaderboard?game=' + GAME + '&period=all&limit=25', 'GET', null, null).then(function (d) {
+      var top = (d.entries || []).map(function (e) { return { name: e.username, score: e.best }; });
+      if (!tok) return { top: top, _status: d._status };
+      return cReq('/api/me', 'GET', null, tok).then(function (me) {
+        var g = (me && me.games && me.games[GAME]) || {}, myName = me && me.username, rank = null;
+        for (var i = 0; i < top.length; i++) { if (myName && String(top[i].name).toLowerCase() === String(myName).toLowerCase()) { rank = i + 1; break; } }
+        return { top: top, me: { name: myName || body.name, rank: rank, best: Number(g.best) || 0 }, _status: d._status };
+      }).catch(function () { return { top: top, _status: d._status }; });
+    });
+    return Promise.resolve({ ok: false, _status: 400 });
   }
   function submitRun(run) {
     if (!run || !run.runId || !acct) return;
@@ -415,6 +492,7 @@ canvas {
     $('acctErr').textContent = '';
     $('acctName').value = '';
     $('acctPin').value = '';
+    $('acctEmail').value = '';
     $('lbOverlay').classList.remove('show');
     $('acctOverlay').classList.add('show');
     setUiOpen();
@@ -422,7 +500,59 @@ canvas {
   function closeOverlays() {
     $('acctOverlay').classList.remove('show');
     $('lbOverlay').classList.remove('show');
+    if ($('resetOverlay')) $('resetOverlay').classList.remove('show');
     setUiOpen();
+  }
+  function openReset() {
+    $('resetErr').textContent = '';
+    $('rName').value = ($('acctName').value || '').trim();
+    $('rCode').value = ''; $('rNewPin').value = '';
+    $('rStep2').style.display = 'none';
+    $('rResetBtn').style.display = 'none';
+    $('rSendBtn').style.display = '';
+    $('acctOverlay').classList.remove('show');
+    $('resetOverlay').classList.add('show');
+    setUiOpen();
+  }
+  function sendResetCode() {
+    var name = $('rName').value.trim().replace(/\s+/g, ' ');
+    var err = $('resetErr');
+    if (name.length < 3) { err.textContent = 'Enter your name.'; return; }
+    err.textContent = 'Sending...';
+    $('rSendBtn').disabled = true;
+    api('request-reset', 'POST', { name: name }).then(function (j) {
+      $('rSendBtn').disabled = false;
+      if (j._status === 503) { err.textContent = 'PIN recovery is not switched on yet.'; return; }
+      if (j._status === 429) { err.textContent = 'A code was just sent, or too many today. Please wait and try again.'; return; }
+      // same reply whether or not the name has an email, so nobody can probe for accounts
+      err.textContent = 'If that name has an email saved, a code is on its way. Check your inbox and spam.';
+      $('rStep2').style.display = '';
+      $('rResetBtn').style.display = '';
+      $('rSendBtn').textContent = 'Resend code';
+    }).catch(function () { $('rSendBtn').disabled = false; err.textContent = 'Could not reach the server.'; });
+  }
+  function doReset() {
+    var name = $('rName').value.trim().replace(/\s+/g, ' ');
+    var code = $('rCode').value.trim();
+    var pin = $('rNewPin').value;
+    var err = $('resetErr');
+    if (!/^[0-9]{6}$/.test(pin)) { err.textContent = 'Your new PIN needs to be 6 digits.'; return; }
+    err.textContent = 'Setting...';
+    $('rResetBtn').disabled = true;
+    api('reset-pin', 'POST', { name: name, code: code, pin: pin }).then(function (j) {
+      $('rResetBtn').disabled = false;
+      if (j.ok) {
+        acct = { name: j.name, token: j.token };
+        saveAcct();
+        closeOverlays();
+        if (pendingRun && state === 'over') submitRun(pendingRun);
+        return;
+      }
+      if (j.error === 'code') err.textContent = 'That code is not right or has expired. Ask for a new one.';
+      else if (j.error === 'tries') err.textContent = 'Too many wrong codes. Ask for a new one.';
+      else if (j.error === 'pin') err.textContent = 'Your new PIN needs to be 6 digits.';
+      else err.textContent = 'Could not reset. Please try again.';
+    }).catch(function () { $('rResetBtn').disabled = false; err.textContent = 'Could not reach the server.'; });
   }
   function drawBoard(j) {
     var body = $('lbBody');
@@ -469,11 +599,14 @@ canvas {
     var pin = $('acctPin').value;
     var err = $('acctErr');
     if (!/^[A-Za-z0-9 _-]{3,16}$/.test(name)) { err.textContent = 'Names are 3 to 16 characters: letters, numbers, spaces, - and _.'; return; }
-    if (!/^[0-9]{4,6}$/.test(pin)) { err.textContent = 'Your PIN needs to be 4 to 6 digits.'; return; }
+    if (!/^[0-9]{6}$/.test(pin)) { err.textContent = 'Your PIN needs to be 6 digits.'; return; }
     err.textContent = '';
     var btns = [$('claimBtn'), $('loginBtn')];
     btns.forEach(function (b) { b.disabled = true; });
-    api(kind === 'claim' ? 'claim-username' : 'login-username', 'POST', { name: name, pin: pin }).then(function (j) {
+    var payload = kind === 'claim'
+      ? { name: name, pin: pin, email: ($('acctEmail').value || '').trim() }
+      : { name: name, pin: pin };
+    api(kind === 'claim' ? 'claim-username' : 'login-username', 'POST', payload).then(function (j) {
       btns.forEach(function (b) { b.disabled = false; });
       if (j.ok) {
         acct = { name: j.name, token: j.token };
@@ -486,7 +619,8 @@ canvas {
       var msg = 'Something went wrong. Please try again.';
       if (j.error === 'taken') msg = 'That name is taken. If it is yours, press Log in.';
       else if (j.error === 'name') msg = 'That name will not work. Try 3 to 16 letters or numbers.';
-      else if (j.error === 'pin') msg = 'Your PIN needs to be 4 to 6 digits.';
+      else if (j.error === 'email') msg = 'That email address does not look right. Leave it blank if you would rather not add one.';
+      else if (j.error === 'pin') msg = 'Your PIN needs to be 6 digits.';
       else if (j.error === 'blocked') msg = 'Please pick a different name.';
       else if (j.error === 'bad') msg = 'That name and PIN do not match.';
       else if (j.error === 'locked') msg = 'Too many wrong tries. Please wait about ' + Math.ceil((j.retryAfter || 900) / 60) + ' minutes.';
@@ -2214,6 +2348,10 @@ canvas {
   $('acctLater').addEventListener('click', closeOverlays);
   $('claimBtn').addEventListener('click', function () { acctCall('claim'); });
   $('loginBtn').addEventListener('click', function () { acctCall('login'); });
+  $('forgotBtn').addEventListener('click', openReset);
+  $('rSendBtn').addEventListener('click', sendResetCode);
+  $('rResetBtn').addEventListener('click', doReset);
+  $('rCancel').addEventListener('click', function () { $('resetOverlay').classList.remove('show'); openAcct(); });
   $('lbAcct').addEventListener('click', function () {
     if (acct) { acct = null; saveAcct(); boardMsg = ''; closeOverlays(); }
     else openAcct();

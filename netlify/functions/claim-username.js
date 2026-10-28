@@ -2,7 +2,8 @@ const { getStore, connectLambda } = require('@netlify/blobs');
 const crypto = require('crypto');
 
 const NAME_RE = /^[A-Za-z0-9 _-]{3,16}$/;
-const PIN_RE = /^[0-9]{4,6}$/;
+const PIN_RE = /^[0-9]{6}$/;
+const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]+\.[^\s@]{2,}$/;
 
 // A simple starting filter. It will not catch everything, so keep an eye on the board and use the admin page.
 const STEMS = ['fuck', 'shit', 'cunt', 'nigg', 'bitch', 'whore', 'pussy', 'bastard', 'wanker', 'twat', 'rapist', 'hitler', 'porn'];
@@ -40,6 +41,10 @@ exports.handler = async function (event) {
   if (!NAME_RE.test(name) || nameKey(name).length < 3) return json(400, { error: 'name' });
   if (!PIN_RE.test(pin)) return json(400, { error: 'pin' });
   if (blocked(name)) return json(400, { error: 'blocked' });
+  // optional recovery email — only used to reset a forgotten PIN
+  const rawEmail = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const email = rawEmail === '' ? '' : (EMAIL_RE.test(rawEmail) && rawEmail.length <= 254 ? rawEmail : null);
+  if (email === null) return json(400, { error: 'email' });
 
   const users = getStore({ name: 'users' });
   const key = nameKey(name);
@@ -48,7 +53,7 @@ exports.handler = async function (event) {
   const salt = crypto.randomBytes(16);
   const hash = await scrypt(pin, salt);
   const token = crypto.randomBytes(32).toString('hex');
-  const rec = { name: name, salt: salt.toString('hex'), hash: hash.toString('hex'), tokens: [sha(token)], fails: 0, lastFail: 0, lockUntil: 0, createdAt: Date.now() };
+  const rec = { name: name, salt: salt.toString('hex'), hash: hash.toString('hex'), tokens: [sha(token)], email: email || null, fails: 0, lastFail: 0, lockUntil: 0, createdAt: Date.now() };
   await users.setJSON(key, rec);
 
   // No read-back check here: under eventual consistency a read straight after a write can be stale,
