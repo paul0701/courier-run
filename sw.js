@@ -1,8 +1,8 @@
 // Courier Run offline support.
 // Network first: when you are online you always get the newest version.
 // The cache is only used when you are offline.
-var CACHE = 'courier-run-v1';
-var FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+var CACHE = 'courier-run-v2';
+var FILES = ['./season-guard.js', './', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(FILES); }).then(function () { return self.skipWaiting(); }));
